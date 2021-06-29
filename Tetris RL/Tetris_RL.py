@@ -1,6 +1,7 @@
 
 import tensorflow as tf
 import datetime
+import numpy as np
 from PIL import ImageGrab
 from PIL import Image
 
@@ -39,7 +40,6 @@ def clarifyDigit(im):
     return min_i
 
 def getScore():
-    a = datetime.datetime.now()
     initial_x = 235
     initial_y = 119
 
@@ -59,19 +59,40 @@ def getScore():
     #    score = score * 10 + clarifyDigit(ImageGrab.grab(bounding_box))
         score = score * 10 + clarifyDigit(im.crop(bounding_box))
 
-    b = datetime.datetime.now()
-
-    delta = b - a
-
-    print("Score poll took ", delta.total_seconds() * 1000, "ms")
-
     return score
+
+
+def getBoard():
+    initial_x = 126
+    initial_y = 103
+
+    x_step = 9
+    y_step = 8
+
+    board = np.ndarray((10, 20), dtype=np.float)
+
+    im = ImageGrab.grab((initial_x, initial_y, initial_x + 10 * x_step, initial_y + 20 * y_step))
+
+    initial_x = (x_step / 2)
+    initial_y = (y_step / 2)
+
+    for i in range(10):
+        for j in range(20):
+            p = im.getpixel((initial_x + x_step * i, initial_y + y_step * j))
+            if p[0] + p[1] + p[2] > 0:
+                board[i][j] = 1
+            else:
+                board[i][j] = 0
+
+    return board
+
 
 def getInput():
     score = getScore()
     board = getBoard()
 
     return (score, board)
+
 
 class Memory:
     def __init__(self):
@@ -96,6 +117,7 @@ def aggregate_memories(memories):
 
     return batch_memory
 
+
 def createModel():
     model = tf.keras.Sequential([
         tf.keras.layers.Dense(64, activation='relu'),
@@ -105,15 +127,18 @@ def createModel():
 
     return model
 
+
 def nextAction(model, observation):
     logits = model.predict(observation)
 
     return logits.argmax()
 
+
 def normalize(x):
     x -= np.mean(x)
     x /= np.std(x)
     return x.astype(np.float32)
+
 
 def discount_rewards(rewards, discount_rate = 0.95):
     discounted_rewards = np.zeros_like(rewards)
@@ -123,6 +148,7 @@ def discount_rewards(rewards, discount_rate = 0.95):
         discounted_rewards[t] = R
 
     return normalize(discounted_rewards)
+
 
 def compute_loss(logits, actions, rewards):
     neg_logprob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=actions)
