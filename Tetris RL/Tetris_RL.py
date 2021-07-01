@@ -6,6 +6,7 @@ from PIL import ImageGrab, Image
 import pydirectinput
 import os
 import random
+import msvcrt
 
 BLOCK_Z = 0
 BLOCK_L = 1
@@ -88,6 +89,7 @@ class TetrisSimulation:
                 
         self.active_indices = new_active_indices
         self.active_type = new_block
+        self.rotation_state = 0
 
         return True
 
@@ -496,17 +498,19 @@ class TetrisSimulation:
         self.ticks_since_down = 0
 
         for i in range(4):
-            if self.active_indices[i][1] + 1 > 19 or self.board[self.active_indices[i][0]][self.active_indices[i][1] + 1] == BOARD_OCCUPIED:
+            if self.active_indices[i][1] + 1 > 19 or (self.active_indices[i][1] >= 0 and self.board[self.active_indices[i][0]][self.active_indices[i][1] + 1] == BOARD_OCCUPIED):
                 return False
 
         for i in self.active_indices:
-            self.board[i[0]][i[1]] = BOARD_EMPTY
+            if i[1] >= 0:
+                self.board[i[0]][i[1]] = BOARD_EMPTY
 
         for i in range(4):
             self.active_indices[i] = (self.active_indices[i][0], self.active_indices[i][1] + 1)
 
         for i in self.active_indices:
-            self.board[i[0]][i[1]] = BOARD_ACTIVE
+            if i[1] >= 0:
+                self.board[i[0]][i[1]] = BOARD_ACTIVE
 
         return True
 
@@ -522,9 +526,13 @@ class TetrisSimulation:
 
             if line_full:
                 clear_count += 1
-                for j2 in range(j, 1, -1):
+                for j2 in range(j, 0, -1):
                     for i in range(10):
-                        self.board[i][j2] = self.board[i][j2 - 1]
+                        if self.board[i][j2 - 1] != BOARD_ACTIVE:
+                            self.board[i][j2] = self.board[i][j2 - 1]
+                for i in range(10):
+                    if self.board[i][0] == BOARD_OCCUPIED:
+                        self.board[i][0] = BOARD_EMPTY
 
         if clear_count == 1:
             self.score += 40
@@ -533,7 +541,8 @@ class TetrisSimulation:
         elif clear_count == 3:
             self.score += 300
         elif clear_count == 4:
-           self.score += 1200
+            self.score += 1200
+
 
     def addGapPoints(self):
         max_index = -1
@@ -569,9 +578,8 @@ class TetrisSimulation:
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
-                self.clearLines()
-                self.addGapPoints()
                 ret = self.generateNewPiece()
+                self.clearLines()
 
         if self.ticks_since_down >= 8:
             if not self.moveDown():
@@ -579,8 +587,8 @@ class TetrisSimulation:
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
-                self.clearLines()
                 ret = self.generateNewPiece()
+                self.clearLines()
 
         return ret
 
@@ -684,6 +692,7 @@ def aggregate_memories(memories):
 
 def createModel():
     model = tf.keras.Sequential([
+        tf.keras.layers.Conv2D(filters=64, kernel_size=(10, 1), activation='relu', input_shape=(10, 20, 1)),
         tf.keras.layers.Flatten(),
         tf.keras.layers.Dense(128, activation='relu'),
         tf.keras.layers.Dense(128, activation='relu'),
@@ -705,7 +714,7 @@ def normalize(x):
     return x.astype(np.float32)
 
 
-def discount_rewards(rewards, discount_rate = 0.95):
+def discount_rewards(rewards, discount_rate = 1.):
     discounted_rewards = np.zeros_like(rewards)
     R = 0
     for t in reversed(range(0, len(rewards))):
@@ -744,12 +753,28 @@ if __name__ == "__main__":
 
     board = TetrisSimulation()
 
+    while True:
+        board.printBoard()
+        print(board.rotation_state)
+        c = msvcrt.getch()
+        os.system('cls')
+        if c == b'a':
+            board.step("left")
+        elif c == b's':
+            board.step("down")
+        elif c == b'd':
+            board.step("right")
+        elif c == b'w':
+            board.step("rleft")
+        elif c == b'e':
+            board.step("rright")
+
     model = createModel()
     memory = Memory()
 
     #1 / 0
 
-    learning_rate = 1e-3
+    learning_rate = 1e-2
     optimizer = tf.keras.optimizers.Adam(learning_rate)
 
     if os.path.isdir("model"):
@@ -766,7 +791,7 @@ if __name__ == "__main__":
         #count = 0
 
         while True:
-            action = nextAction(model, np.expand_dims(np.copy(observation), axis=0))
+            action = nextAction(model, np.expand_dims(np.copy(observation), axis=(0, -1)))
             #count += 1
             #print(action)
 
