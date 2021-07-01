@@ -50,7 +50,7 @@ class TetrisSimulation:
         self.active_indices = []
         self.active_type = 0
         self.rotation_state = 0
-        self.generateNewPiece(BLOCK_J)
+        self.generateNewPiece()
         self.ticks_since_down = 0
 
     def generateNewPiece(self, new_block=-1):
@@ -549,6 +549,8 @@ class TetrisSimulation:
         for i in self.active_indices:
             if max_index != -1 and i[1] >= max_index:
                 self.score += 1
+            else:
+                self.score -= 9
 
     def step(self, action):
         ret = True
@@ -682,17 +684,17 @@ def aggregate_memories(memories):
 
 def createModel():
     model = tf.keras.Sequential([
-        tf.keras.layers.Flatten(input_shape=(10,20)),
-        tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(5, activation='softmax')
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dense(5, activation=None)
     ])
 
     return model
 
 
 def nextAction(model, observation):
-    logits = model.predict(np.expand_dims(observation, axis=0))
+    logits = model.predict(observation)
 
     return logits.argmax()
 
@@ -754,34 +756,34 @@ if __name__ == "__main__":
         model.load("model")
 
     #if hasattr(tqdm, '_instances'): tqdm._instances.clear()
-    for i_episode in range(500):
-        observation = np.copy(board.board)
+    for i_episode in range(5000):
+        observation = np.expand_dims(np.copy(board.board), axis=-1)
 
         memory.clear()
 
         print("Step: ", i_episode)
 
-        count = 0
+        #count = 0
 
         while True:
-            action = nextAction(model, observation)
-            count += 1
+            action = nextAction(model, np.expand_dims(np.copy(observation), axis=0))
+            #count += 1
             #print(action)
 
-            if (count % 200) == 0:
-                board.printBoard()
+            #if (count % 500) == 0:
+            #    board.printBoard()
 
-            if count > 2000:
-                board.printBoard()
-                print(action)
-                print(board.ticks_since_down)
+            #if count > 2000:
+            #    board.printBoard()
+            #    print(action)
+            #    print(board.ticks_since_down)
 
             old_score = board.score
 
             continue_flag = board.step(action_map[action])
             reward = (board.score - old_score) * 1.0
 
-            new_observation = board.board
+            new_observation = np.expand_dims(np.copy(board.board), axis=-1)
 
             memory.addToMemory(observation, action, reward)
 
@@ -791,7 +793,7 @@ if __name__ == "__main__":
                            actions=np.array(memory.actions),
                            discounted_rewards=discount_rewards(memory.rewards))
 
-                print("Step ", i_episode, " ended")
+                #print("Step ", i_episode, " ended")
                 print(board.score)
                 memory.clear()
                 board.clear()
@@ -800,3 +802,4 @@ if __name__ == "__main__":
 
             observation = new_observation
 
+    model.save('model')
