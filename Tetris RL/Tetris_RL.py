@@ -535,6 +535,21 @@ class TetrisSimulation:
         elif clear_count == 4:
            self.score += 1200
 
+    def addGapPoints(self):
+        max_index = -1
+
+        for j in range(20):
+            for i in range(10):
+                if self.board[i][j] == BOARD_OCCUPIED:
+                    max_index = j
+                    break
+            if max_index != -1:
+                break
+
+        for i in self.active_indices:
+            if max_index != -1 and i[1] >= max_index:
+                self.score += 1
+
     def step(self, action):
         ret = True
 
@@ -548,14 +563,17 @@ class TetrisSimulation:
             self.moveRight()
         else:
             if not self.moveDown():
+                self.addGapPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
                 self.clearLines()
+                self.addGapPoints()
                 ret = self.generateNewPiece()
 
         if self.ticks_since_down >= 8:
             if not self.moveDown():
+                self.addGapPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -756,7 +774,6 @@ if __name__ == "__main__":
 
             if (count % 200) == 0:
                 board.printBoard()
-                print(board.ticks_since_down)
 
             if count > 2000:
                 board.printBoard()
@@ -778,6 +795,8 @@ if __name__ == "__main__":
                            actions=np.array(memory.actions),
                            discounted_rewards=discount_rewards(memory.rewards))
 
+                print("Step ", i_episode, " ended")
+                print(board.score)
                 memory.clear()
                 board.clear()
                 break
