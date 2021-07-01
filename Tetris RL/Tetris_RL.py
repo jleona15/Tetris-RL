@@ -123,7 +123,7 @@ class TetrisSimulation:
                            (top_left_x, top_left_y + 2),
                            (top_left_x + 1, top_left_y + 2)]
 
-            elif self.rotation_state == 1:
+            elif self.rotation_state == 3:
                 (top_left_x, top_left_y) = self.active_indices[0]
                 top_left_x -= 1
                 top_left_y += 1
@@ -189,7 +189,7 @@ class TetrisSimulation:
                            (top_left_x, top_left_y + 2),
                            (top_left_x + 1, top_left_y)]
                 
-            elif self.rotation_state == 1:
+            elif self.rotation_state == 3:
                 (top_left_x, top_left_y) = self.active_indices[0]
                 top_left_x -= 1
                 new_pos = [(top_left_x, top_left_y),
@@ -219,7 +219,7 @@ class TetrisSimulation:
                            (top_left_x, top_left_y + 1),
                            (top_left_x, top_left_y + 2),
                            (top_left_x + 1, top_left_y + 1)]
-            elif self.rotation_state == 1:
+            elif self.rotation_state == 3:
                 (top_left_x, top_left_y) = self.active_indices[0]
                 top_left_x -= 1
                 top_left_y += 1
@@ -571,7 +571,7 @@ class TetrisSimulation:
                 self.addGapPoints()
                 ret = self.generateNewPiece()
 
-        if self.ticks_since_down >= 8:
+        if self.ticks_since_down >= 999:
             if not self.moveDown():
                 self.addGapPoints()
                 for i in self.active_indices:
@@ -744,10 +744,15 @@ if __name__ == "__main__":
 
     model = createModel()
     memory = Memory()
+    
+    board.step("down")
+    board.step("down")
+    board.step("down")
 
-    #for i in range(900):
-    #    board.step("rright")
-    #board.printBoard()
+    for i in range(900):
+        board.printBoard()
+        print(board.active_indices)
+        board.step("rleft")
 
     #1 / 0
 
