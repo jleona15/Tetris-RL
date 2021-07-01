@@ -50,7 +50,7 @@ class TetrisSimulation:
         self.active_indices = []
         self.active_type = 0
         self.rotation_state = 0
-        self.generateNewPiece()
+        self.generateNewPiece(BLOCK_J)
         self.ticks_since_down = 0
 
     def generateNewPiece(self, new_block=-1):
@@ -257,10 +257,10 @@ class TetrisSimulation:
         if self.active_type == BLOCK_S or self.active_type == BLOCK_Z or self.active_type == BLOCK_I:
             self.rotation_state = 1 - self.rotation_state
         else:
-            if self.rotation_state < 3:
-                self.rotation_state += 1
+            if self.rotation_state > 0:
+                self.rotation_state -= 1
             else:
-                self.rotation_state = 0
+                self.rotation_state = 3
 
 
 
@@ -727,6 +727,12 @@ if __name__ == "__main__":
     model = createModel()
     memory = Memory()
 
+    #for i in range(900):
+    #    board.step("rright")
+    #board.printBoard()
+
+    #1 / 0
+
     learning_rate = 1e-3
     optimizer = tf.keras.optimizers.Adam(learning_rate)
 
@@ -748,10 +754,14 @@ if __name__ == "__main__":
             count += 1
             #print(action)
 
-            if count > 200:
+            if (count % 200) == 0:
                 board.printBoard()
                 print(board.ticks_since_down)
-                count = 0
+
+            if count > 2000:
+                board.printBoard()
+                print(action)
+                print(board.ticks_since_down)
 
             old_score = board.score
 
