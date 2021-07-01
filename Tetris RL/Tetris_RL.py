@@ -571,7 +571,7 @@ class TetrisSimulation:
                 self.addGapPoints()
                 ret = self.generateNewPiece()
 
-        if self.ticks_since_down >= 999:
+        if self.ticks_since_down >= 8:
             if not self.moveDown():
                 self.addGapPoints()
                 for i in self.active_indices:
@@ -744,15 +744,6 @@ if __name__ == "__main__":
 
     model = createModel()
     memory = Memory()
-    
-    board.step("down")
-    board.step("down")
-    board.step("down")
-
-    for i in range(900):
-        board.printBoard()
-        print(board.active_indices)
-        board.step("rleft")
 
     #1 / 0
 
