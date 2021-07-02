@@ -7,6 +7,7 @@ import pydirectinput
 import os
 import random
 import msvcrt
+from collections import deque
 
 BLOCK_Z = 0
 BLOCK_L = 1
@@ -542,6 +543,8 @@ class TetrisSimulation:
             self.score += 300
         elif clear_count == 4:
             self.score += 1200
+        else:
+            self.score += 2
 
 
     def addGapPoints(self):
@@ -574,7 +577,7 @@ class TetrisSimulation:
             self.moveRight()
         else:
             if not self.moveDown():
-                self.addGapPoints()
+                #self.addGapPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -583,7 +586,7 @@ class TetrisSimulation:
 
         if self.ticks_since_down >= 8:
             if not self.moveDown():
-                self.addGapPoints()
+                #self.addGapPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -671,28 +674,28 @@ class Memory:
         self.clear()
 
     def clear(self):
-        self.observations = []
-        self.actions = []
-        self.rewards = []
+        self.memories = deque(maxlen=10000)
 
     def addToMemory(self, new_observation, new_action, new_reward):
-        self.observations.append(new_observation)
-        self.actions.append(new_action)
-        self.rewards.append(new_reward)
+        self.memories.append((new_observation, new_action, new_reward))
 
-def aggregate_memories(memories):
-    batch_memory = Memory()
+    def sampleMemory(self, batch_size=64):
+        indices = np.random.choice(len(self.memories), batch_size, False)
 
-    for memory in memories:
-        for step in zip(memory.observations, memory.actions, memory.rewards):
-            batch_memory.addToMemory(*step)
+        observations = []
+        actions = []
+        rewards = []
 
-    return batch_memory
+        for i in indices:
+            observations.append(self.memories[i][0])
+            actions.append(self.memories[i][1])
+            rewards.append(self.memories[i][2])
+
+        return np.array(observations), np.array(actions), np.array(rewards)
 
 
 def createModel():
     model = tf.keras.Sequential([
-        tf.keras.layers.Conv2D(filters=64, kernel_size=(10, 1), activation='relu', input_shape=(10, 20, 1)),
         tf.keras.layers.Flatten(),
         tf.keras.layers.Dense(128, activation='relu'),
         tf.keras.layers.Dense(128, activation='relu'),
@@ -714,12 +717,14 @@ def normalize(x):
     return x.astype(np.float32)
 
 
-def discount_rewards(rewards, discount_rate = 1.):
+def discount_rewards(rewards, discount_rate = .99):
     discounted_rewards = np.zeros_like(rewards)
     R = 0
     for t in reversed(range(0, len(rewards))):
         R = R * discount_rate + rewards[t]
         discounted_rewards[t] = R
+        if t - 1 >= 0 and rewards[t] == 0 and rewards[t - 1] != 0:
+            R = 0
 
     return normalize(discounted_rewards)
 
@@ -730,13 +735,11 @@ def compute_loss(logits, actions, rewards):
 
     return loss
 
-def train_step(model, optimizer, observations, actions, discounted_rewards):
-    print(observations.shape)
-
+def train_step(model, optimizer, observations, actions, rewards):
     with tf.GradientTape() as tape:
         logits = model.__call__(observations)
 
-        loss = compute_loss(logits, actions, discounted_rewards)
+        loss = compute_loss(logits, actions, rewards)
 
     grads = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
@@ -753,45 +756,71 @@ if __name__ == "__main__":
 
     board = TetrisSimulation()
 
-    while True:
-        board.printBoard()
-        print(board.rotation_state)
-        c = msvcrt.getch()
-        os.system('cls')
-        if c == b'a':
-            board.step("left")
-        elif c == b's':
-            board.step("down")
-        elif c == b'd':
-            board.step("right")
-        elif c == b'w':
-            board.step("rleft")
-        elif c == b'e':
-            board.step("rright")
+    flag = True
 
     model = createModel()
     memory = Memory()
 
-    #1 / 0
+    while True:
+        flag == True
+        print("Supervised Learning Step:")
+        board.printBoard()
+        print(board.rotation_state)
 
-    learning_rate = 1e-2
+        observation = np.expand_dims(np.copy(board.board), axis=-1)
+        action = -1
+
+        c = msvcrt.getch()
+        os.system('cls')
+        old_score = board.score
+        if flag == False:
+            break
+        if c == b'a':
+            action = 2
+            flag = board.step("left")
+        elif c == b's':
+            action = 4
+            flag = board.step("down")
+        elif c == b'd':
+            action = 3
+            flag = board.step("right")
+        elif c == b'w':
+            action = 0
+            flag = board.step("rleft")
+        elif c == b'e':
+            action = 0
+            flag = board.step("rright")
+
+        reward = (board.score - old_score) * 1.0
+
+        if action != -1:
+            memory.addToMemory(observation, action, reward)
+
+    learning_rate = 1e-4
+    epsilon = .5
+    epsilon_decay_rate = .99999
+    epsilon_min = .02
     optimizer = tf.keras.optimizers.Adam(learning_rate)
 
     if os.path.isdir("model"):
         model.load("model")
 
+    observations, actions, rewards = memory.sampleMemory(len(memory.memories))
+    train_step(model, optimizer, observations, actions, discount_rewards(rewards))
+
     #if hasattr(tqdm, '_instances'): tqdm._instances.clear()
     for i_episode in range(5000):
         observation = np.expand_dims(np.copy(board.board), axis=-1)
-
-        memory.clear()
 
         print("Step: ", i_episode)
 
         #count = 0
 
         while True:
-            action = nextAction(model, np.expand_dims(np.copy(observation), axis=(0, -1)))
+            if random.random() < epsilon:
+                action = random.randint(0, 4)
+            else:
+                action = nextAction(model, np.expand_dims(np.copy(observation), axis=(0, -1)))
             #count += 1
             #print(action)
 
@@ -803,6 +832,8 @@ if __name__ == "__main__":
             #    print(action)
             #    print(board.ticks_since_down)
 
+            epsilon = max(epsilon * epsilon_decay_rate, epsilon_min)
+
             old_score = board.score
 
             continue_flag = board.step(action_map[action])
@@ -812,15 +843,14 @@ if __name__ == "__main__":
 
             memory.addToMemory(observation, action, reward)
 
+
+
             if not continue_flag:
-                train_step(model, optimizer,
-                           observations=np.array(memory.observations),
-                           actions=np.array(memory.actions),
-                           discounted_rewards=discount_rewards(memory.rewards))
+                observations, actions, rewards = memory.sampleMemory()
+                train_step(model, optimizer, observations, actions, discount_rewards(rewards))
 
                 #print("Step ", i_episode, " ended")
-                print(board.score)
-                memory.clear()
+                print("Score: ", board.score)
                 board.clear()
                 break
 
