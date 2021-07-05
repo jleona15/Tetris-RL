@@ -543,8 +543,8 @@ class TetrisSimulation:
             self.score += 300
         elif clear_count == 4:
             self.score += 1200
-        else:
-            self.score += 2
+        #else:
+            #self.score += 2
 
 
     def addGapPoints(self):
@@ -577,7 +577,7 @@ class TetrisSimulation:
             self.moveRight()
         else:
             if not self.moveDown():
-                #self.addGapPoints()
+                self.addGapPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -586,7 +586,7 @@ class TetrisSimulation:
 
         if self.ticks_since_down >= 8:
             if not self.moveDown():
-                #self.addGapPoints()
+                self.addGapPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -696,9 +696,11 @@ class Memory:
 
 def createModel():
     model = tf.keras.Sequential([
+        tf.keras.layers.Conv2D(64, 5, 1, activation='relu', input_shape=(10, 20, 1)),
+        tf.keras.layers.Conv2D(64, (1,16), activation='relu'),
+        tf.keras.layers.Conv2D(64, (3, 1), activation='relu'),
+        tf.keras.layers.Conv2D(64, (3, 1), activation='relu'),
         tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dense(128, activation='relu'),
         tf.keras.layers.Dense(5, activation=None)
     ])
 
@@ -706,7 +708,8 @@ def createModel():
 
 
 def nextAction(model, observation):
-    logits = model.predict(observation)
+    #print(observation.shape)
+    logits = model.predict(np.expand_dims(observation, (0, -1)))
 
     return logits.argmax()
 
@@ -735,14 +738,35 @@ def compute_loss(logits, actions, rewards):
 
     return loss
 
-def train_step(model, optimizer, observations, actions, rewards):
+def train_step(model, target, optimizer, observations, actions, rewards):
     with tf.GradientTape() as tape:
-        logits = model.__call__(observations)
+        logits = target.__call__(np.expand_dims(observations, -1))
 
         loss = compute_loss(logits, actions, rewards)
 
-    grads = tape.gradient(loss, model.trainable_variables)
+    grads = tape.gradient(loss, target.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+def syncModels(model, target, ratio):
+    for layer_i in range(len(target.layers)):
+        if len(target.layers[layer_i].get_weights()) != 0:
+            weights_shape = target.layers[layer_i].get_weights()[0].shape
+            biases_shape = target.layers[layer_i].get_weights()[1].shape
+
+            weights = np.copy(target.layers[layer_i].get_weights()[0]).flatten()
+            new_weights = np.copy(model.layers[layer_i].get_weights()[0]).flatten()
+            for i in random.sample(range(weights.shape[0]), k = int(weights.shape[0] * ratio)):
+                weights[i] = new_weights[i]
+
+            biases = np.copy(target.layers[layer_i].get_weights()[1]).flatten()
+            new_biases = np.copy(model.layers[layer_i].get_weights()[1]).flatten()
+            for i in random.sample(range(biases.shape[0]), k = int(biases.shape[0] * ratio)):
+                biases[i] = new_biases[i]
+
+            weights = np.reshape(weights, weights_shape)
+            biases = np.reshape(biases, biases_shape)
+            
+            target.layers[layer_i].set_weights([weights, biases])
 
 
 def performAction(key):
@@ -759,59 +783,67 @@ if __name__ == "__main__":
     flag = True
 
     model = createModel()
+    target_model = createModel()
     memory = Memory()
 
-    while True:
-        flag == True
-        print("Supervised Learning Step:")
-        board.printBoard()
-        print(board.rotation_state)
+    supervised_step = False
 
-        observation = np.expand_dims(np.copy(board.board), axis=-1)
-        action = -1
+    if supervised_step == True:
+        while True:
+            flag == True
+            print("Supervised Learning Step:")
+            board.printBoard()
+            print(board.rotation_state)
 
-        c = msvcrt.getch()
-        os.system('cls')
-        old_score = board.score
-        if flag == False:
-            break
-        if c == b'a':
-            action = 2
-            flag = board.step("left")
-        elif c == b's':
-            action = 4
-            flag = board.step("down")
-        elif c == b'd':
-            action = 3
-            flag = board.step("right")
-        elif c == b'w':
-            action = 0
-            flag = board.step("rleft")
-        elif c == b'e':
-            action = 0
-            flag = board.step("rright")
+            observation = np.expand_dims(np.copy(board.board), axis=-1)
+            action = -1
 
-        reward = (board.score - old_score) * 1.0
+            c = msvcrt.getch()
+            os.system('cls')
+            old_score = board.score
+            if flag == False:
+                break
+            if c == b'a':
+                action = 2
+                flag = board.step("left")
+            elif c == b's':
+                action = 4
+                flag = board.step("down")
+            elif c == b'd':
+                action = 3
+                flag = board.step("right")
+            elif c == b'w':
+                action = 0
+                flag = board.step("rleft")
+            elif c == b'e':
+                action = 0
+                flag = board.step("rright")
 
-        if action != -1:
-            memory.addToMemory(observation, action, reward)
+            reward = (board.score - old_score) * 1.0
+
+            if action != -1:
+                memory.addToMemory(observation, action, reward)
 
     learning_rate = 1e-4
-    epsilon = .5
+    epsilon = 1.
     epsilon_decay_rate = .99999
     epsilon_min = .02
     optimizer = tf.keras.optimizers.Adam(learning_rate)
+    sync_frequency = 3
+    sync_rate = .4
+
+    sync_counter = 0
 
     if os.path.isdir("model"):
         model.load("model")
 
-    observations, actions, rewards = memory.sampleMemory(len(memory.memories))
-    train_step(model, optimizer, observations, actions, discount_rewards(rewards))
+    if supervised_step == True:
+        observations, actions, rewards = memory.sampleMemory(len(memory.memories))
+        train_step(model, target_model, optimizer, observations, actions, discount_rewards(rewards))
 
     #if hasattr(tqdm, '_instances'): tqdm._instances.clear()
     for i_episode in range(5000):
-        observation = np.expand_dims(np.copy(board.board), axis=-1)
-
+        observation = np.copy(board.board)
         print("Step: ", i_episode)
 
         #count = 0
@@ -820,7 +852,7 @@ if __name__ == "__main__":
             if random.random() < epsilon:
                 action = random.randint(0, 4)
             else:
-                action = nextAction(model, np.expand_dims(np.copy(observation), axis=(0, -1)))
+                action = nextAction(model, observation)
             #count += 1
             #print(action)
 
@@ -839,20 +871,24 @@ if __name__ == "__main__":
             continue_flag = board.step(action_map[action])
             reward = (board.score - old_score) * 1.0
 
-            new_observation = np.expand_dims(np.copy(board.board), axis=-1)
+            new_observation = np.copy(board.board)
 
             memory.addToMemory(observation, action, reward)
 
-
-
             if not continue_flag:
                 observations, actions, rewards = memory.sampleMemory()
-                train_step(model, optimizer, observations, actions, discount_rewards(rewards))
+                train_step(model, target_model, optimizer, observations, actions, discount_rewards(rewards))
 
                 #print("Step ", i_episode, " ended")
                 print("Score: ", board.score)
                 board.clear()
                 break
+
+                sync_counter += 1
+
+                if sync_counter == sync_frequency:
+                    sync_counter = 0
+                    syncModels(model, target_model, sync_ratio)
 
 
             observation = new_observation
