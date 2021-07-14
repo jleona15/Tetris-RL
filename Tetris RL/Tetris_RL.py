@@ -7,6 +7,7 @@ import pydirectinput
 import os
 import random
 import msvcrt
+import sys
 from collections import deque
 
 BLOCK_Z = 0
@@ -20,6 +21,11 @@ BLOCK_T = 6
 BOARD_EMPTY = 0.
 BOARD_OCCUPIED = 1.
 BOARD_ACTIVE = 2.
+
+EXPERIENCE_BUFFER_SIZE = 10000
+EXPERIENCE_SAMPLE_SIZE = 64
+
+DISCOUNT_RATE = .99
 
 action_map = [
     "rleft",
@@ -35,7 +41,7 @@ class TetrisSimulation:
 
     def clear(self):
         self.score = 0
-        self.board = np.zeros((10, 20), dtype=np.uint8)
+        self.board = np.zeros((10, 20), dtype=np.float32)
         self.active_indices = []
         self.active_type = 0
         self.rotation_state = 0
@@ -531,6 +537,24 @@ class TetrisSimulation:
         else:
             self.score += 2
 
+    def rowCountPoints(self):
+        rowCounts = np.zeros(20, dtype=np.uint8)
+
+        for i in range(10):
+            for j in range(20):
+                if self.board[i][j] == BOARD_OCCUPIED:
+                    rowCounts[j] += 1
+
+        for i in self.active_indices:
+            if rowCounts[i[1]] == 6:
+                self.score += 1
+            elif rowCounts[i[1]] == 7:
+                self.score += 3
+            elif rowCounts[i[1]] == 8:
+                self.score += 7
+
+            rowCounts[i[1]] += 1
+
     def dbgPoints(self):
         score_to_add = 0
         for i in self.active_indices:
@@ -553,6 +577,7 @@ class TetrisSimulation:
             self.moveRight()
         else:
             if not self.moveDown():
+                #self.rowCountPoints()
                 #self.dbgPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
@@ -562,6 +587,7 @@ class TetrisSimulation:
 
         if self.ticks_since_down >= 8:
             if not self.moveDown():
+                #self.rowCountPoints()
                 #self.dbgPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
@@ -571,76 +597,312 @@ class TetrisSimulation:
 
         return ret
 
+class SumTree:
+    def __init__(self, max_depth = 14):
+        if (max_depth == 0):
+            self.left = None
+            self.right = None
+        else:
+            self.left = SumTree(max_depth - 1)
+            self.right = SumTree(max_depth - 1)
+        self.sum = 0.
+        self.full = False
+
+    def CHECK_SUM(self, depth):
+        if isinstance(self.left, SumTree):
+            self.left.CHECK_SUM(depth - 1)
+            self.right.CHECK_SUM(depth - 1)
+            if self.left.sum + self.right.sum != self.sum:
+                print('ERROR: Sum Check Failed at depth ', depth, ', ', self.sum, ' != ', sum)
+                print(self)
+                print(self.left)
+                print(self.right)
+                print(self.left.sum)
+                print(self.right.sum)
+                1 / 0
+
+        else:
+            sum = 0.
+            if not (self.left is None):
+                sum += self.left.loss()
+            if not (self.right is None):
+                sum += self.right.loss()
+
+            if sum != self.sum:
+                print('ERROR: Sum Check Failed at depth ', depth, ', ', self.sum, ' != ', sum)
+                print(self)
+                print(self.left)
+                print(self.right)
+                if self.left is None:
+                    print('None')
+                else:
+                    print(self.left.reward)
+                if self.right is None:
+                    print('None')
+                else:
+                    print(self.right.reward)
+
+                1 / 0
+
+
+
+
+    def sample(self, batch_size):
+        s = []
+        for i in range(batch_size):
+            s.append(random.random() * self.sum)
+
+        return self.sampleHelper(s)
+
+    def sampleHelper(self, s):
+        if s == []:
+            return []
+        if isinstance(self.left, SumTree):
+            left_s = []
+            right_s = []
+
+            for i in s:
+                if self.left.sum >= i:
+                    left_s.append(i)
+                else:
+                    right_s.append(i - self.left.sum)
+
+            #print("Left sum: ", self.left.sum)
+            #print("Right sum: ", self.right.sum)
+
+            #print("Left samples: ", left_s)
+            #print("Right samples: ", right_s)
+
+            return self.left.sampleHelper(left_s) + self.right.sampleHelper(right_s)
+        
+        ret = []
+
+        #print("Samples: ", s)
+
+        for i in s:
+            if self.left.loss() >= i:
+                ret.append(self.left)
+            else:
+                ret.append(self.right)
+
+        losses = []
+
+        for i in ret:
+            losses.append(i.loss())
+
+        #print("Return losses: ", losses)
+
+        return ret
+
+    def insert(self, fragment):
+        if self.full == True:
+            self.insertFull(fragment)
+        elif self.insertNotFull(fragment, 14) == False:
+            #print("FULL")
+            self.insertFull(fragment)
+
+        #self.CHECK_SUM(14)
+
+    def insertFull(self, fragment):
+        if random.random() <= .5:
+            if isinstance(self.left, SumTree):
+                ret = self.left.insertFull(fragment)
+                self.sum = self.left.sum + self.right.sum
+                return ret
+            else:
+                self.left = fragment
+                self.sum = self.left.loss()
+                if not self.right is None:
+                    self.sum += self.right.loss()
+                return True
+        else:
+            if isinstance(self.right, SumTree):
+                ret = self.right.insertFull(fragment)
+                self.sum = self.left.sum + self.right.sum
+                return ret
+            else:
+                self.right = fragment
+                self.sum = self.right.loss()
+                if not self.left is None:
+                    self.sum += self.left.loss()
+                return True
+
+    def insertNotFull(self, fragment, depth=-1):
+        if self.left is None:
+            self.left = fragment
+            self.sum = fragment.loss()
+            
+            return True
+        elif self.right is None:
+            self.right = fragment
+            self.sum = self.right.loss() + self.left.loss()
+            self.full = True
+            return True
+        elif isinstance(self.left, SumTree):
+            if self.left.full == False and self.left.insertNotFull(fragment, depth - 1):
+                self.sum = self.left.sum + self.right.sum
+
+                return True
+            else:
+                if self.right.full == False:
+                    ret = self.right.insertNotFull(fragment, depth - 1)
+                    if ret == False:
+                        self.full = True
+                    else:
+                        self.sum = self.left.sum + self.right.sum
+                    return ret
+                else:
+                    self.full = True
+                    return False
+        else:
+            self.full = True
+            return False
+
+    def updateLogits(self, model):
+        left = 0.
+        right = 0.
+
+        if not self.left is None:
+            left = self.left.updateLogits(model)
+
+        if not self.right is None:
+            right = self.right.updateLogits(model)
+
+        self.sum = left + right
+        
+        return self.sum
+
+    def updateTargetLogits(self, target_model):
+        left = 0.
+        right = 0.
+
+        if not self.left is None:
+            left = self.left.updateTargetLogits(model)
+
+        if not self.right is None:
+            right = self.right.updateTargetLogits(model)
+
+        self.sum = left + right
+        
+        return self.sum
+
+
+class MemoryFragment:
+    def __init__(self, state, action, reward, next_state, model_logit, target_logits):
+        self.state = state
+        self.action = action
+        self.reward = reward
+        self.next_state = next_state
+        self.model_logit = model_logit
+        self.target_logits = target_logits
+
+    def updateLogits(self, model):
+        self.model_logit = model.predict([np.expand_dims(self.state, 0), np.expand_dims(self.action, 0)])[0][0]
+        return self.loss()
+
+    def updateTargetLogits(self, target):
+        if self.next_state is None:
+            self.target_logits = [0., 0., 0., 0., 0.]
+        else:
+            self.target_logits = []
+            act_arr = np.zeros(1)
+            for i in range(5):
+                act_arr = i * 1.0
+                self.target_logits.append(target_model.predict([np.expand_dims(self.next_state, 0), np.expand_dims(self.action, 0)])[0][0])
+
+        return self.loss()
+
+    def loss(self):
+        max_i = 0
+        for i in range(1, 5):
+            if self.target_logits[i] > self.target_logits[max_i]:
+                max_i = i
+
+        loss_ret = self.model_logit - (self.reward + (DISCOUNT_RATE * self.target_logits[max_i]))
+        loss_ret = loss_ret * loss_ret
+
+        return loss_ret
+
+
 
 class Memory:
     def __init__(self):
-        self.clear()
+        self.memory = SumTree()
 
-    def clear(self):
-        self.states = deque(maxlen=10000)
-        self.actions = deque(maxlen=10000)
-        self.rewards = deque(maxlen=10000)
+    def addToMemory(self, state, action, reward, next_state, model_logit, target_logits):
+        fragment = MemoryFragment(state, action, reward, next_state, model_logit, target_logits)
+        self.memory.insert(fragment)
 
-    def addToMemory(self, new_observation, new_action, new_reward):
-        self.states.append(new_observation)
-        self.actions.append(new_action)
-        self.rewards.append(new_reward)
+    #def discountRewards(self, action_count, discount_rate = .99):
+    #    discounted_rewards = np.zeros_like(self.rewards)
+    #    R = 0
+    #    for t in reversed(range(len(self.rewards) - action_count, len(self.rewards))):
+    #        R = R * discount_rate + self.rewards[t]
+    #        self.rewards[t] = R
 
-    def discountRewards(self, action_count, discount_rate = .99):
-        discounted_rewards = np.zeros_like(self.rewards)
-        R = 0
-        for t in reversed(range(len(self.rewards) - action_count, len(self.rewards))):
-            R = R * discount_rate + self.rewards[t]
-            self.rewards[t] = R
+    def sampleMemory(self, batch_size=EXPERIENCE_SAMPLE_SIZE):
+        return self.memory.sample(batch_size)
 
-    def sampleMemory(self, batch_size=256):
-        indices = np.random.choice(len(self.states), batch_size, False)
+    def updateLogits(self, model):
+        self.memory.updateLogits(model)
 
-        observations = []
-        actions = []
-        rewards = []
-
-        for i in indices:
-            observations.append(self.states[i])
-            actions.append(self.actions[i])
-            rewards.append(self.rewards[i])
-
-        return np.array(observations), np.array(actions), np.array(rewards)
+    def updateTargetLogits(self, target):
+        self.memory.updateTargetLogits(target)
 
 
-def createModel():
-    model = tf.keras.Sequential([
-        tf.keras.layers.Conv2D(64, 5, 1, activation='relu', input_shape=(10, 20, 1)),
-        tf.keras.layers.Conv2D(64, (1,16), activation='relu'),
-        tf.keras.layers.Conv2D(64, (3, 1), activation='relu'),
-        tf.keras.layers.Conv2D(64, (3, 1), activation='relu'),
-        tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(5, activation=None)
-    ])
+def createModel(optimizer, loss):
+    state_input = tf.keras.Input(shape=(200), name="observation_input")
+    action_input = tf.keras.Input(shape=(1), name="action_input")
+
+    l1 = tf.keras.layers.concatenate([state_input, action_input])
+    l2 = tf.keras.layers.Dense(32, activation='relu')(l1)
+    l3 = tf.keras.layers.Dense(32, activation='relu')(l2)
+    output = tf.keras.layers.Dense(1, activation=None)(l3)
+
+    model = tf.keras.Model(
+        inputs=[state_input, action_input],
+        outputs=output,
+    )
+
+    model.compile(optimizer, loss)
 
     return model
 
 
 def nextAction(model, observation):
-    logits = model.predict(np.expand_dims(observation, (0, -1)))
 
-    return logits.argmax()
+    logit_list = []
+    obs_copy = np.expand_dims(observation, 0)
+    act_arr = np.array([[0.]])
+
+    for action in range(5):
+        act_arr[0][0] = action * 1.0
+        logit_list.append(model.predict([obs_copy, act_arr])[0][0])
+
+    return logit_list.index(max(logit_list)), max(logit_list)
 
 
-def compute_loss(logits, actions, rewards):
-    neg_logprob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=actions)
-    loss = tf.reduce_mean(neg_logprob * rewards)
 
-    return loss
+def train_step(model, target, fragments):
+    next_rewards = np.zeros(EXPERIENCE_SAMPLE_SIZE)
 
-def train_step(model, target, optimizer, observations, actions, rewards):
-    with tf.GradientTape() as tape:
-        logits = target.__call__(np.expand_dims(observations, -1))
+    state_list = []
+    action_list = []
+    Q_list = []
 
-        loss = compute_loss(logits, actions, rewards)
+    for i in range(EXPERIENCE_SAMPLE_SIZE):
+        state_list.append(fragments[i].state)
+        action_list.append(fragments[i].action)
 
-    grads = tape.gradient(loss, target.trainable_variables)
-    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        Q_i = 0
+
+        for j in range(1, 5):
+            if fragments[i].target_logits[j] > fragments[i].target_logits[Q_i]:
+                Q_i = j
+
+        Q_list.append(fragments[i].reward + DISCOUNT_RATE * fragments[i].target_logits[Q_i])
+
+    model.fit([np.array(state_list), np.array(action_list)], np.array(Q_list), batch_size = EXPERIENCE_SAMPLE_SIZE, epochs = 5)
 
 def syncModels(model, target, ratio):
     for layer_i in range(len(target.layers)):
@@ -667,24 +929,85 @@ if __name__ == "__main__":
 
     board = TetrisSimulation()
 
-    model = createModel()
-    target_model = createModel()
+    model = createModel('adam', 'mse')
+    target_model = createModel('adam', 'mse')
+    if os.path.isdir('./model'):
+        print("Loading model...")
+        model = tf.keras.models.load_model('./model')
+        target_model = tf.keras.models.load_model('./model')
+        print("Model loaded")
+
     memory = Memory()
 
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     epsilon = 1.
-    epsilon_decay_rate = .99999
+    epsilon_decay_rate = .9999945
     epsilon_min = .02
-    optimizer = tf.keras.optimizers.Adam(learning_rate)
     sync_frequency = 10
-    sync_rate = 1.0
+    sync_ratio = 1.
 
     sync_counter = 0
 
     max_score = 0
 
-    for i_episode in range(5000):
-        observation = np.copy(board.board)
+    step = 0
+
+    if os.path.isfile('./vars.txt'):
+        f = open('vars.txt', 'r')
+        data = f.read().split('\n')
+        epsilon = float(data[0])
+        step = int(data[1])
+        max_score = int(data[2])
+
+        f.close()
+
+    supervised_step = False
+    flag = True
+
+    if supervised_step == True:
+        while True:
+            flag == True
+            print("Supervised Learning Step:")
+            board.printBoard()
+            print(board.rotation_state)
+
+            observation = np.copy(board.board).flatten()
+            action = -1
+
+            c = msvcrt.getch()
+            os.system('cls')
+            old_score = board.score
+            if flag == False:
+                break
+            if c == b'a':
+                action = 2
+                flag = board.step("left")
+            elif c == b's':
+                action = 4
+                flag = board.step("down")
+            elif c == b'd':
+                action = 3
+                flag = board.step("right")
+            elif c == b'w':
+                action = 0
+                flag = board.step("rleft")
+            elif c == b'e':
+                action = 0
+                flag = board.step("rright")
+
+            reward = (board.score - old_score) * 1.0
+
+            if action != -1:
+                memory.addToMemory(observation, action, reward)
+
+    if supervised_step == True:
+        observations, actions, rewards = memory.sampleMemory(model, target)
+        train_step(model, target_model, optimizer, observations, actions, rewards)
+
+    #memory_buffer_full = False
+
+    for i_episode in range(step, 5000):
+        observation = np.copy(board.board).flatten()
         print("Step: ", i_episode)
 
         action_counter = 0
@@ -692,8 +1015,10 @@ if __name__ == "__main__":
         while True:
             if random.random() < epsilon:
                 action = random.randint(0, 4)
+                logit = model.predict([np.expand_dims(observation, 0), np.array([[action * 1.0]])])[0][0]
+                #print("LOGIT: ", logit)
             else:
-                action = nextAction(model, observation)
+                action, logit = nextAction(model, observation)
             
             action_counter += 1
 
@@ -704,17 +1029,31 @@ if __name__ == "__main__":
             continue_flag = board.step(action_map[action])
             reward = (board.score - old_score) * 1.0
 
+            new_observation = np.copy(board.board).flatten()
+
             if not continue_flag:
                 reward -= 100
+                new_observation = None
 
-            new_observation = np.copy(board.board)
+            target_logits = []
+            if new_observation is None:
+                target_logits = [0., 0., 0., 0., 0.]
+            else:
+                for i in range(5):
+                    target_logits.append(target_model.predict([np.expand_dims(new_observation, 0), np.array([[i * 1.]])])[0][0])
 
-            memory.addToMemory(observation, action, reward)
+            memory.addToMemory(observation, action, reward, new_observation, logit, target_logits)
+
+            #if (not memory_buffer_full) and len(memory.states) >= EXPERIENCE_BUFFER_SIZE:
+                #print("MEMORY BUFFER AT CAPACITY, DELETING FUTURE MEMORIES")
+                #memory_buffer_full = True
+                #1 / 0
 
             if not continue_flag:
-                memory.discountRewards(action_counter)
-                observations, actions, discounted_rewards = memory.sampleMemory()
-                train_step(model, target_model, optimizer, observations, actions, discounted_rewards)
+                #memory.discountRewards(action_counter)
+                fragments = memory.sampleMemory()
+                train_step(model, target_model, fragments)
+                memory.updateLogits(model)
 
                 #print("Step ", i_episode, " ended")
                 print("Score: ", board.score)
@@ -727,15 +1066,19 @@ if __name__ == "__main__":
                 board.printBoard()
 
                 board.clear()
-                break
 
                 sync_counter += 1
 
                 if sync_counter == sync_frequency:
                     sync_counter = 0
                     syncModels(model, target_model, sync_ratio)
+                    memory.updateTargetLogits(target_model)
+                    print("Epsilon: ", epsilon)
+                    model.save('./model')
+                    f = open('./vars.txt', 'w')
+                    f.write(str(epsilon) + '\n' + str(i_episode) + '\n' + str(max_score))
+                    f.close()
 
+                break
 
             observation = new_observation
-
-    model.save('model')
