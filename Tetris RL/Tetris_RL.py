@@ -2,12 +2,11 @@
 import tensorflow as tf
 import time
 import numpy as np
-from PIL import ImageGrab, Image
-import pydirectinput
 import os
 import random
 import msvcrt
 import sys
+import ctypes
 from collections import deque
 
 BLOCK_Z = 0
@@ -40,7 +39,7 @@ class TetrisSimulation:
         self.clear()
 
     def clear(self):
-        self.score = 0
+        self.score = 0.
         self.board = np.zeros((10, 20), dtype=np.float32)
         self.active_indices = []
         self.active_type = 0
@@ -595,77 +594,77 @@ class TetrisSimulation:
                 ret = self.generateNewPiece()
                 self.clearLines()
 
+        self.score -= .01
+
         return ret
 
 class SumTree:
-    def __init__(self, max_depth = 14):
-        if (max_depth == 0):
-            self.left = None
-            self.right = None
-        else:
-            self.left = SumTree(max_depth - 1)
-            self.right = SumTree(max_depth - 1)
-        self.sum = 0.
-        self.full = False
+    def __init__(self, max_depth = 12):
+        self.tree = np.zeros((2**max_depth) - 1, dtype = float)
+        self.arr = np.ndarray(2**max_depth, dtype = MemoryFragment)
+        self.next_insert_index = 0
+        self.max_depth = max_depth
 
-    def CHECK_SUM(self, depth):
-        if isinstance(self.left, SumTree):
-            self.left.CHECK_SUM(depth - 1)
-            self.right.CHECK_SUM(depth - 1)
-            if self.left.sum + self.right.sum != self.sum:
-                print('ERROR: Sum Check Failed at depth ', depth, ', ', self.sum, ' != ', sum)
-                print(self)
-                print(self.left)
-                print(self.right)
-                print(self.left.sum)
-                print(self.right.sum)
+    def SUM_CHECK(self):
+        depth = 0
+        index = 0
+        while index * 2 + 2 < self.tree.shape[0]:
+            if index + 1 == 2**(depth + 1):
+                depth += 1
+            if abs(self.tree[index] - (self.tree[index * 2 + 1] + self.tree[index * 2 + 2])) > .00001:
+                print("Sum Check error at tree index ", index, ", depth ", depth)
+                print(self.tree[index], " != ", self.tree[index * 2 + 1], ' + ', self.tree[index * 2 + 2], ' = ',  self.tree[index * 2 + 1] + self.tree[index * 2 + 2])
                 1 / 0
 
-        else:
-            sum = 0.
-            if not (self.left is None):
-                sum += self.left.loss()
-            if not (self.right is None):
-                sum += self.right.loss()
+            index += 1
 
-            if sum != self.sum:
-                print('ERROR: Sum Check Failed at depth ', depth, ', ', self.sum, ' != ', sum)
-                print(self)
-                print(self.left)
-                print(self.right)
-                if self.left is None:
-                    print('None')
-                else:
-                    print(self.left.reward)
-                if self.right is None:
-                    print('None')
-                else:
-                    print(self.right.reward)
+        depth += 1
 
+        while index < self.tree.shape[0]:
+            sum_l = 0.
+            sum_r = 0.
+
+            if not self.arr[(index * 2 + 1) - self.tree.shape[0]] is None:
+                sum_l = self.arr[(index * 2 + 1) - self.tree.shape[0]].loss()
+
+            if not self.arr[(index * 2 + 2) - self.tree.shape[0]] is None:
+                sum_r = self.arr[(index * 2 + 2) - self.tree.shape[0]].loss()
+
+            if abs(self.tree[index] - (sum_l + sum_r)) > .00001:
+                print("Sum check error at tree index ", index, ", depth ", depth)
+                print(self.tree[index], " != ", sum_l, ' + ', sum_r, ' = ',  sum_l + sum_r)
                 1 / 0
 
-
-
+            index += 1
 
     def sample(self, batch_size):
         s = []
+        #self.SUM_CHECK();
         for i in range(batch_size):
-            s.append(random.random() * self.sum)
+            s.append(random.random() * self.tree[0])
 
-        return self.sampleHelper(s)
+        return self.sampleHelper(s, 0)
 
-    def sampleHelper(self, s):
+    def sampleHelper(self, s, i):
         if s == []:
             return []
-        if isinstance(self.left, SumTree):
+        if i * 2 + 2 < self.tree.shape[0]:
+
             left_s = []
             right_s = []
 
-            for i in s:
-                if self.left.sum >= i:
-                    left_s.append(i)
+            for j in s:
+                if self.tree[i * 2 + 1] >= j:
+                    left_s.append(j)
                 else:
-                    right_s.append(i - self.left.sum)
+                    right_s.append(j - self.tree[i * 2 + 1])
+
+            #print("##############################")
+            #print(s)
+            #print(self.tree[i * 2 + 1])
+            #print(left_s)
+            #print(right_s)
+            #print("##############################")
 
             #print("Left sum: ", self.left.sum)
             #print("Right sum: ", self.right.sum)
@@ -673,118 +672,95 @@ class SumTree:
             #print("Left samples: ", left_s)
             #print("Right samples: ", right_s)
 
-            return self.left.sampleHelper(left_s) + self.right.sampleHelper(right_s)
+            return self.sampleHelper(left_s, i * 2 + 1) + self.sampleHelper(right_s, i * 2 + 2)
         
+        #print("Parent index: ", (i - 1) // 2)
+        #print(self.tree[(i - 1) // 2])
+
         ret = []
+        l_i = i * 2 + 1 - self.tree.shape[0]
+        r_i = i * 2 + 2 - self.tree.shape[0]
 
-        #print("Samples: ", s)
+        #print(i)
+        #print(self.arr[0])
 
-        for i in s:
-            if self.left.loss() >= i:
-                ret.append(self.left)
+        for j in s:
+            if self.arr[l_i].loss() >= j:
+                ret.append(self.arr[l_i])
             else:
-                ret.append(self.right)
-
-        losses = []
-
-        for i in ret:
-            losses.append(i.loss())
-
-        #print("Return losses: ", losses)
+                ret.append(self.arr[r_i])
 
         return ret
 
     def insert(self, fragment):
-        if self.full == True:
-            self.insertFull(fragment)
-        elif self.insertNotFull(fragment, 14) == False:
-            #print("FULL")
-            self.insertFull(fragment)
-
-        #self.CHECK_SUM(14)
-
-    def insertFull(self, fragment):
-        if random.random() <= .5:
-            if isinstance(self.left, SumTree):
-                ret = self.left.insertFull(fragment)
-                self.sum = self.left.sum + self.right.sum
-                return ret
-            else:
-                self.left = fragment
-                self.sum = self.left.loss()
-                if not self.right is None:
-                    self.sum += self.right.loss()
-                return True
+        if self.next_insert_index < self.arr.shape[0]:
+            self.arr[self.next_insert_index] = fragment;
+            index = self.next_insert_index
+            self.next_insert_index += 1
+            loss_delta = fragment.loss()
         else:
-            if isinstance(self.right, SumTree):
-                ret = self.right.insertFull(fragment)
-                self.sum = self.left.sum + self.right.sum
-                return ret
-            else:
-                self.right = fragment
-                self.sum = self.right.loss()
-                if not self.left is None:
-                    self.sum += self.left.loss()
-                return True
+            i = 0
+            sample = random.random() * self.tree[0]
 
-    def insertNotFull(self, fragment, depth=-1):
-        if self.left is None:
-            self.left = fragment
-            self.sum = fragment.loss()
-            
-            return True
-        elif self.right is None:
-            self.right = fragment
-            self.sum = self.right.loss() + self.left.loss()
-            self.full = True
-            return True
-        elif isinstance(self.left, SumTree):
-            if self.left.full == False and self.left.insertNotFull(fragment, depth - 1):
-                self.sum = self.left.sum + self.right.sum
-
-                return True
-            else:
-                if self.right.full == False:
-                    ret = self.right.insertNotFull(fragment, depth - 1)
-                    if ret == False:
-                        self.full = True
-                    else:
-                        self.sum = self.left.sum + self.right.sum
-                    return ret
+            while i * 2 + 2 < self.tree.shape[0]:
+                if self.tree[i * 2 + 1] < sample:
+                    i = i * 2 + 1
                 else:
-                    self.full = True
-                    return False
-        else:
-            self.full = True
-            return False
+                    i = i * 2 + 2
+                    sample -= self.tree[i * 2 + 1]
+
+            if self.arr[i * 2 + 1 - self.tree.shape[0]].loss() < sample:
+                self.arr[i * 2 + 1 - self.tree.shape[0]] = fragment
+            else:
+                self.arr[i * 2 + 2 - self.tree.shape[0]] = fragment
+
+        index = ((index + self.tree.shape[0]) - 1) // 2
+
+        while index >= 0:
+            self.tree[index] += loss_delta
+            index = (index - 1) // 2
+
+        #self.SUM_CHECK()
 
     def updateLogits(self, model):
-        left = 0.
-        right = 0.
+        for i in range(self.arr.shape[0]):
+            if not self.arr[i] is None:
+                self.arr[i].updateLogits(model)
 
-        if not self.left is None:
-            left = self.left.updateLogits(model)
+        for i in range(2**(self.max_depth - 1) - 1, self.tree.shape[0]):
+            new_sum = 0.
 
-        if not self.right is None:
-            right = self.right.updateLogits(model)
+            if not self.arr[(i * 2 + 1) - (self.tree.shape[0])] is None:
+                new_sum += self.arr[(i * 2 + 1) - (self.tree.shape[0])].loss()
 
-        self.sum = left + right
-        
-        return self.sum
+            if not self.arr[(i * 2 + 2) - (self.tree.shape[0])] is None:
+                new_sum += self.arr[(i * 2 + 2) - (self.tree.shape[0])].loss()
+
+            self.tree[i] = new_sum
+
+        for i in range(2**(self.max_depth - 1) - 2, -1, -1):
+            self.tree[i] = self.tree[i * 2 + 1] + self.tree[i * 2 + 2]
+
+
 
     def updateTargetLogits(self, target_model):
-        left = 0.
-        right = 0.
+        for i in range(self.arr.shape[0]):
+            if not self.arr[i] is None:
+                self.arr[i].updateTargetLogits(model)
 
-        if not self.left is None:
-            left = self.left.updateTargetLogits(model)
+        for i in range(2**(self.max_depth - 1) - 1, self.tree.shape[0]):
+            new_sum = 0.
 
-        if not self.right is None:
-            right = self.right.updateTargetLogits(model)
+            if not self.arr[(i * 2 + 1) - (self.tree.shape[0])] is None:
+                new_sum += self.arr[(i * 2 + 1) - (self.tree.shape[0])].loss()
 
-        self.sum = left + right
-        
-        return self.sum
+            if not self.arr[(i * 2 + 2) - (self.tree.shape[0])] is None:
+                new_sum += self.arr[(i * 2 + 2) - (self.tree.shape[0])].loss()
+
+            self.tree[i] = new_sum
+
+        for i in range(2**(self.max_depth - 1) - 2, -1, -1):
+            self.tree[i] = self.tree[i * 2 + 1] + self.tree[i * 2 + 2]
 
 
 class MemoryFragment:
@@ -927,6 +903,11 @@ def syncModels(model, target, ratio):
 
 if __name__ == "__main__":
 
+    #for i in (os.environ['PATH'].split(';')):
+    #    print(i)
+
+    #1 / 0
+
     board = TetrisSimulation()
 
     model = createModel('adam', 'mse')
@@ -941,10 +922,11 @@ if __name__ == "__main__":
 
     learning_rate = 1e-3
     epsilon = 1.
-    epsilon_decay_rate = .9999945
+    epsilon_decay_rate = .99999
     epsilon_min = .02
     sync_frequency = 10
     sync_ratio = 1.
+    buffer_rate = 1.
 
     sync_counter = 0
 
@@ -957,7 +939,7 @@ if __name__ == "__main__":
         data = f.read().split('\n')
         epsilon = float(data[0])
         step = int(data[1])
-        max_score = int(data[2])
+        max_score = float(data[2])
 
         f.close()
 
@@ -1013,9 +995,14 @@ if __name__ == "__main__":
         action_counter = 0
 
         while True:
+            add_to_buffer = False
+            if random.random() < buffer_rate:
+                add_to_buffer = True
+
             if random.random() < epsilon:
                 action = random.randint(0, 4)
-                logit = model.predict([np.expand_dims(observation, 0), np.array([[action * 1.0]])])[0][0]
+                if add_to_buffer:
+                    logit = model.predict([np.expand_dims(observation, 0), np.array([[action * 1.0]])])[0][0]
                 #print("LOGIT: ", logit)
             else:
                 action, logit = nextAction(model, observation)
@@ -1035,14 +1022,16 @@ if __name__ == "__main__":
                 reward -= 100
                 new_observation = None
 
-            target_logits = []
-            if new_observation is None:
-                target_logits = [0., 0., 0., 0., 0.]
-            else:
-                for i in range(5):
-                    target_logits.append(target_model.predict([np.expand_dims(new_observation, 0), np.array([[i * 1.]])])[0][0])
+            if add_to_buffer:
 
-            memory.addToMemory(observation, action, reward, new_observation, logit, target_logits)
+                target_logits = []
+                if new_observation is None:
+                    target_logits = [0., 0., 0., 0., 0.]
+                else:
+                    for i in range(5):
+                        target_logits.append(target_model.predict([np.expand_dims(new_observation, 0), np.array([[i * 1.]])])[0][0])
+
+                memory.addToMemory(observation, action, reward, new_observation, logit, target_logits)
 
             #if (not memory_buffer_full) and len(memory.states) >= EXPERIENCE_BUFFER_SIZE:
                 #print("MEMORY BUFFER AT CAPACITY, DELETING FUTURE MEMORIES")
