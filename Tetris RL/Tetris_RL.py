@@ -4,7 +4,6 @@ import time
 import numpy as np
 import os
 import random
-import msvcrt
 import sys
 import ctypes
 from collections import deque
@@ -699,20 +698,20 @@ class SumTree:
             self.next_insert_index += 1
             loss_delta = fragment.loss()
         else:
-            i = 0
+            index = 0
             sample = random.random() * self.tree[0]
 
-            while i * 2 + 2 < self.tree.shape[0]:
-                if self.tree[i * 2 + 1] < sample:
-                    i = i * 2 + 1
+            while index * 2 + 2 < self.tree.shape[0]:
+                if self.tree[index * 2 + 1] < sample:
+                    index = index * 2 + 1
                 else:
-                    i = i * 2 + 2
-                    sample -= self.tree[i * 2 + 1]
+                    index = index * 2 + 2
+                    sample -= self.tree[index * 2 + 1]
 
-            if self.arr[i * 2 + 1 - self.tree.shape[0]].loss() < sample:
-                self.arr[i * 2 + 1 - self.tree.shape[0]] = fragment
+            if self.arr[index * 2 + 1 - self.tree.shape[0]].loss() < sample:
+                self.arr[index * 2 + 1 - self.tree.shape[0]] = fragment
             else:
-                self.arr[i * 2 + 2 - self.tree.shape[0]] = fragment
+                self.arr[index * 2 + 2 - self.tree.shape[0]] = fragment
 
         index = ((index + self.tree.shape[0]) - 1) // 2
 
