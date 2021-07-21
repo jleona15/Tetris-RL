@@ -705,8 +705,8 @@ class SumTree:
                 if self.tree[index * 2 + 1] < sample:
                     index = index * 2 + 1
                 else:
-                    index = index * 2 + 2
                     sample -= self.tree[index * 2 + 1]
+                    index = index * 2 + 2
 
             if self.arr[index * 2 + 1 - self.tree.shape[0]].loss() < sample:
                 loss_delta = fragment.loss() - self.arr[index * 2 + 1 - self.tree.shape[0]].loss()
