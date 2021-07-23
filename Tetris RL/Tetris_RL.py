@@ -796,7 +796,7 @@ class MemoryFragment:
                 max_i = i
 
         loss_ret = self.model_logit - (self.reward + (DISCOUNT_RATE * self.target_logits[max_i]))
-        loss_ret = loss_ret * loss_ret
+        loss_ret = (loss_ret * loss_ret) / 2
 
         return loss_ret
 
@@ -841,7 +841,7 @@ def createModel(optimizer, loss):
         outputs=output,
     )
 
-    model.compile(optimizer, loss)
+    model.compile(tf.keras.optimizers.Adam(1e-4), loss)
 
     return model
 
@@ -921,9 +921,8 @@ if __name__ == "__main__":
 
     memory = Memory()
 
-    learning_rate = 1e-3
     epsilon = 1.
-    epsilon_decay_rate = .99999
+    epsilon_decay_rate = .999995
     epsilon_min = .02
     sync_frequency = 10
     sync_ratio = 1.
