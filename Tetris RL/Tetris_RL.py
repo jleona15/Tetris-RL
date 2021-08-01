@@ -6,6 +6,7 @@ import os
 import random
 import sys
 import ctypes
+import msvcrt
 from collections import deque
 
 BLOCK_Z = 0
@@ -39,7 +40,12 @@ class TetrisSimulation:
 
     def clear(self):
         self.score = 0.
-        self.board = np.zeros((10, 20), dtype=np.float32)
+        self.board = np.ndarray((10, 20), dtype=np.float32)
+
+        for i in range(10):
+            for j in range(20):
+                self.board[i][j] = BOARD_EMPTY
+
         self.active_indices = []
         self.active_type = 0
         self.rotation_state = 0
@@ -979,8 +985,17 @@ if __name__ == "__main__":
 
             reward = (board.score - old_score) * 1.0
 
-            if action != -1:
-                memory.addToMemory(observation, action, reward)
+            #new_observation = np.copy(board.board).flatten()
+
+            #target_logits = []
+
+            #for i in range(5):
+            #    target_logits.append(target_model.predict([np.expand_dims(new_observation, 0), np.array([[(i * 1. - 2.) / 2]])])[0][0])
+
+            #if action != -1:
+            #    memory.addToMemory(observation, action, reward, new_observation, logit, target_logits)
+
+                
 
     if supervised_step == True:
         observations, actions, rewards = memory.sampleMemory(model, target)
@@ -1002,7 +1017,7 @@ if __name__ == "__main__":
             if random.random() < epsilon:
                 action = random.randint(0, 4)
                 if add_to_buffer:
-                    logit = model.predict([np.expand_dims(observation, 0), np.array([[action * 1.0]])])[0][0]
+                    logit = model.predict([np.expand_dims(observation, 0), np.array([[(action * 1. - 2.) / 2]])])[0][0]
                 #print("LOGIT: ", logit)
             else:
                 action, logit = nextAction(model, observation)
@@ -1029,7 +1044,7 @@ if __name__ == "__main__":
                     target_logits = [0., 0., 0., 0., 0.]
                 else:
                     for i in range(5):
-                        target_logits.append(target_model.predict([np.expand_dims(new_observation, 0), np.array([[i * 1.]])])[0][0])
+                        target_logits.append(target_model.predict([np.expand_dims(new_observation, 0), np.array([[(i * 1. - 2.) / 2]])])[0][0])
 
                 memory.addToMemory(observation, action, reward, new_observation, logit, target_logits)
 
