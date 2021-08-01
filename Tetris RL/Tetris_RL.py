@@ -6,7 +6,7 @@ import os
 import random
 import sys
 import ctypes
-import msvcrt
+#import msvcrt
 from collections import deque
 
 BLOCK_Z = 0
