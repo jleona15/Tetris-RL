@@ -16,9 +16,9 @@ BLOCK_I = 4
 BLOCK_J = 5
 BLOCK_T = 6
 
-BOARD_EMPTY = 0.
+BOARD_EMPTY = -1.
 BOARD_OCCUPIED = 1.
-BOARD_ACTIVE = 2.
+BOARD_ACTIVE = 0.
 
 EXPERIENCE_BUFFER_SIZE = 10000
 EXPERIENCE_SAMPLE_SIZE = 64
@@ -557,9 +557,9 @@ class TetrisSimulation:
         score_to_add = 0
         for i in self.active_indices:
             if i[0] <= 4:
-                score_to_add = max(score_to_add, 5 - i[0])
+                score_to_add += 5 - i[0]
             else:
-                score_to_add = max(score_to_add, 4 - i[0])
+                score_to_add += 4 - i[0]
         self.score += score_to_add
 
     def step(self, action):
@@ -576,7 +576,7 @@ class TetrisSimulation:
         else:
             if not self.moveDown():
                 #self.rowCountPoints()
-                #self.dbgPoints()
+                self.dbgPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -586,7 +586,7 @@ class TetrisSimulation:
         if self.ticks_since_down >= 8:
             if not self.moveDown():
                 #self.rowCountPoints()
-                #self.dbgPoints()
+                self.dbgPoints()
                 for i in self.active_indices:
                     if i[1] >= 0:
                         self.board[i[0]][i[1]] = BOARD_OCCUPIED
@@ -853,7 +853,7 @@ def nextAction(model, observation):
     act_arr = np.array([[0.]])
 
     for action in range(5):
-        act_arr[0][0] = action * 1.0
+        act_arr[0][0] = ((action * 1.0) - 2) / 2
         logit_list.append(model.predict([obs_copy, act_arr])[0][0])
 
     return logit_list.index(max(logit_list)), max(logit_list)
@@ -869,7 +869,7 @@ def train_step(model, target, fragments):
 
     for i in range(EXPERIENCE_SAMPLE_SIZE):
         state_list.append(fragments[i].state)
-        action_list.append(fragments[i].action)
+        action_list.append((fragments[i].action - 2.0) / 2)
 
         Q_i = 0
 
