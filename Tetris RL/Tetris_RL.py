@@ -12,9 +12,9 @@ import os
 import tetrisboard
 
 EXPERIENCE_BUFFER_SIZE = 10000
-EXPERIENCE_SAMPLE_SIZE = 64
+EXPERIENCE_SAMPLE_SIZE = 32
 
-EPSILON_DECAY_RATE = .999995
+EPSILON_DECAY_RATE = .9999
 EPSILON_MIN = .02
 SYNC_FREQUENCY = 100
 TRAIN_FREQUENCY = 4
@@ -145,6 +145,7 @@ if __name__ == "__main__":
 
     model = createModel()
     target_model = createModel()
+    action = np.argmax(getStateActionPredictions(model, board.getObservation()))
     
     if os.path.isdir('./model'):
         print("Loading model...")
