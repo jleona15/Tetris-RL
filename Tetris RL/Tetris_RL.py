@@ -184,7 +184,7 @@ if __name__ == "__main__":
 
             old_score = board.score
 
-            continue_flag = board.step(action)
+            continue_flag = board.step(action_map[action])
             reward = board.score - old_score
 
             new_state = board.getObservation()
@@ -204,6 +204,8 @@ if __name__ == "__main__":
                 print("Highscore: ", max_score)
 
                 print("Epsilon: ", epsilon)
+
+                board.printBoard()
 
                 board.clear()
 
