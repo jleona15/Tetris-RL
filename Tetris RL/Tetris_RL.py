@@ -17,8 +17,8 @@ EXPERIENCE_SAMPLE_SIZE = 16
 EPSILON_DECAY_RATE = .9999
 EPSILON_MIN = .02
 SYNC_FREQUENCY = 400
-TRAIN_FREQUENCY = 16
-LEARNING_RATE = 1e-4
+TRAIN_FREQUENCY = 64
+LEARNING_RATE = 1e-3
 
 DISCOUNT_RATE = .99
 
@@ -117,7 +117,7 @@ def train_step(model, target, memory):
 
         logits[i][actions[i]] = (1 - LEARNING_RATE) * logits[i][actions[i]] + LEARNING_RATE * q
 
-    model.fit(np.array(states), logits, batch_size = len(states), epochs = 5, verbose=0)
+    model.fit(np.array(states), logits, batch_size = len(states), epochs = 3, verbose=0)
 
 def syncModels(model, target):
     for layer_i in range(len(target.layers)):
